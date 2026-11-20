@@ -25,7 +25,7 @@ function hybrd(f!::Function, x0::Vector{Float64}, tol::Float64,
     fjac = Array{Float64}(undef, n, n)
     lwa = ceil(Int, (n*(3*n+13))/2)
     wa = ones(lwa)
-    trace = AlgoTrace(x0, show_trace, tracing, maxit)
+    trace = AlgoTrace(x0, f!, show_trace, tracing, maxit)
 
     r = Array{Float64}(undef, lr)
     qtf = Array{Float64}(undef, n)
@@ -46,9 +46,9 @@ function hybrd(f!::Function, x0::Vector{Float64}, tol::Float64,
             print(fvec)
             return Cint(0)
         end
-        f!(fvec, x)
 
         local trace = unsafe_pointer_to_objref(_p)::AlgoTrace
+        trace.f!(fvec, x)
         push!(trace, x, fvec, iflag)
 
         trace.f_calls > trace.maxit ? Cint(-1) : Cint(0)
@@ -126,7 +126,7 @@ function hybrj(f!::Function, g!::Function, x0::Vector{Float64}, xtol::Float64,
     fjac = Array{Float64}(undef, n, n)
     lwa = ceil(Int, (n*(3*n+13))/2)
     wa = ones(lwa)
-    trace = AlgoTrace(x0, show_trace, tracing, maxit)
+    trace = AlgoTrace(x0, f!, show_trace, tracing, maxit)
 
     r = Array{Float64}(undef, lr)
     qtf = Array{Float64}(undef, n)
@@ -146,18 +146,19 @@ function hybrj(f!::Function, g!::Function, x0::Vector{Float64}, xtol::Float64,
         fjac_flat = unsafe_wrap(Array, _fjac, ldfjac*n)
         fjac = reshape(fjac_flat, Int(ldfjac), Int(n))
         local x = unsafe_wrap(Array, _x, n)
+        local trace = unsafe_pointer_to_objref(_p)::AlgoTrace
+
         if iflag < 0
             print(fvec)
             return Cint(0)
         end
 
         if iflag == 1
-            f!(fvec, x)
+            trace.f!(fvec, x)
         elseif iflag == 2
-            g!(fjac, x)
+            g!(fjac, x) # FIXME: store g! in trace::AlgoTrace, just like f!
         end
 
-        local trace = unsafe_pointer_to_objref(_p)::AlgoTrace
         push!(trace, x, fvec, iflag)
 
         trace.f_calls > trace.maxit ? Cint(-1) : Cint(0)
@@ -223,9 +224,9 @@ function hybrd1(f!::Function, x0::Vector{Float64}, tol::Float64,
     n = length(x)
     lwa = ceil(Int, (n*(3*n+13))/2)
     wa = ones(lwa)
-    trace = AlgoTrace(x0, show_trace, tracing, maxit)
+    trace = AlgoTrace(x0, f!, show_trace, tracing, maxit)
 
-    function _hybrd1_func_wrapper(_p::Ptr{Cvoid}, n::Cint, _x::Ptr{Cdouble},
+    function _hybrd1_func_wrapper(trace::AlgoTrace, n::Cint, _x::Ptr{Cdouble},
                                  _fvec::Ptr{Cdouble}, iflag::Cint)
         local fvec = unsafe_wrap(Array, _fvec, n)
         local x = unsafe_wrap(Array, _x, n)
@@ -233,9 +234,8 @@ function hybrd1(f!::Function, x0::Vector{Float64}, tol::Float64,
             print(fvec)
             return Cint(0)
         end
-        f!(fvec, x)
 
-        local trace = unsafe_pointer_to_objref(_p)::AlgoTrace
+        trace.f!(fvec, x)
         push!(trace, x, fvec, iflag)
 
         trace.f_calls > trace.maxit ? Cint(-1) : Cint(0)
@@ -244,15 +244,16 @@ function hybrd1(f!::Function, x0::Vector{Float64}, tol::Float64,
     _hybrd1_cfunc = @cfunction(
         $_hybrd1_func_wrapper,
         Cint,
-        (Ptr{Cvoid}, Cint, Ptr{Cdouble}, Ptr{Cdouble}, Cint)
+        (Ref{AlgoTrace}, Cint, Ptr{Cdouble}, Ptr{Cdouble}, Cint)
     )
 
     if show_trace
         show(trace)
     end
+    trace_ref = Ref(trace)
     return_code = @ccall libcminpack.hybrd1(
         _hybrd1_cfunc::Ptr{Cvoid},
-        pointer_from_objref(trace)::Ptr{Cvoid},
+        trace_ref::Ref{AlgoTrace},
         n::Cint,
         x::Ptr{Cdouble},
         fvec::Ptr{Cdouble},
@@ -304,7 +305,7 @@ function lmdif1(f!::Function, x0::Vector{Float64}, m::Int, tol::Float64,
     lwa = m*n+5*n+m
     iwa = Array{Int}(undef, n)
     wa = Array{Float64}(undef, lwa)
-    trace = AlgoTrace(x0, show_trace, tracing, maxit)
+    trace = AlgoTrace(x0, f!, show_trace, tracing, maxit)
 
     if show_trace
         show(trace)
@@ -318,9 +319,10 @@ function lmdif1(f!::Function, x0::Vector{Float64}, m::Int, tol::Float64,
             print(fvec)
             return Cint(0)
         end
-        f!(fvec, x)
-
         local trace = unsafe_pointer_to_objref(_p)::AlgoTrace
+
+        trace.f!(fvec, x)
+
         push!(trace, x, fvec, iflag)
         trace.f_calls > trace.maxit ? Cint(-1) : Cint(0)
     end
@@ -392,7 +394,7 @@ function lmdif(f!::Function, x0::Vector{Float64}, m::Int, tol::Float64,
     lwa = m*n+5*n+m
     iwa = Array{Int}(undef, n)
     wa = Array{Float64}(undef, lwa)
-    trace = AlgoTrace(x0, show_trace, tracing, maxit)
+    trace = AlgoTrace(x0, f!, show_trace, tracing, maxitm)
 
     diag = Array{Float64}(undef, n)
     nfev = [0]
@@ -416,9 +418,9 @@ function lmdif(f!::Function, x0::Vector{Float64}, m::Int, tol::Float64,
             print(fvec)
             return Cint(0)
         end
-        f!(fvec, x)
-
         local trace = unsafe_pointer_to_objref(_p)::AlgoTrace
+
+        trace.f!(fvec, x)
         push!(trace, x, fvec, iflag)
         trace.f_calls > trace.maxit ? Cint(-1) : Cint(0)
     end
@@ -505,7 +507,7 @@ function lmder(f!::Function, g!::Function, x0::Vector{Float64}, m::Int,
     lwa = m*n+5*n+m
     iwa = Array{Int}(undef, n)
     wa = Array{Float64}(undef, lwa)
-    trace = AlgoTrace(x0, show_trace, tracing, maxit)
+    trace = AlgoTrace(x0, f!, show_trace, tracing, maxit)
 
     diag = Array{Float64}(undef, n)
     nfev = [0]
@@ -534,14 +536,14 @@ function lmder(f!::Function, g!::Function, x0::Vector{Float64}, m::Int,
             print(fvec)
             return Cint(0)
         end
+        local trace = unsafe_pointer_to_objref(_p)::AlgoTrace
 
         if iflag == 1
-            f!(fvec, x)
+            trace.f!(fvec, x)
         elseif iflag == 2
-            g!(fjac, x)
+            g!(fjac, x) # FIXME: store g! in trace::AlgoTrace, just like f!
         end
 
-        local trace = unsafe_pointer_to_objref(_p)::AlgoTrace
         push!(trace, x, fvec, iflag)
 
         trace.f_calls > trace.maxit ? Cint(-1) : Cint(0)

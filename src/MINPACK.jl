@@ -10,7 +10,7 @@ export fsolve
 # Removes the need for a generic downstream dependency.
 function _sqeuclidean(a::Array,b::Array)
     length(a) !== length(b) &&
-        throw(DimensionMismatch("first array has lenght $(length(a)) which does not match the length of the second, $(length(b))"))
+        throw(DimensionMismatch("first array has length $(length(a)) which does not match the length of the second, $(length(b))"))
     c = zero(promote_type(eltype(a),eltype(b)))
     for i in eachindex(a,b)
         c += abs2(a[i] - b[i])
@@ -40,15 +40,16 @@ mutable struct AlgoTrace
     start_time::Float64
     last_feval_time::Float64
     tot_time::Float64
+    f!::Function
 
-    function AlgoTrace(x_init::Vector{Float64}, verbose::Bool=false, tracing::Bool=false,
+    function AlgoTrace(x_init::Vector{Float64}, f!::Function, verbose::Bool=false, tracing::Bool=false,
                        maxit::Int=typemax(Int))
         if verbose
             tracing = true
         end
         x_old = tracing ? copy(x_init) : Array{Float64}(undef, 0)
         states = Array{IterationState}(undef,0)
-        new(0, 0, verbose, tracing, maxit, x_old, states, 1, time(), time(), NaN)
+        new(0, 0, verbose, tracing, maxit, x_old, states, 1, time(), time(), NaN, f!)
     end
 end
 
